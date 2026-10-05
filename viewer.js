@@ -1,11 +1,12 @@
 'use strict';
 (() => {
+  window.addEventListener('hashchange', () => location.reload());
   const API = 'https://jadavfwsapncsxylhkar.supabase.co/functions/v1/sentinel-relay';
   const $ = id => document.getElementById(id);
   const match = /^#([a-f0-9-]{36})\.([a-f0-9]{64})$/i.exec(location.hash);
   if (!match) return;
   const [, id, token] = match;
-  let map, marker, circle, latest, expiresAt, stopped = false, timer, first = true;
+  let map, marker, circle, latest, expiresAt, stopped = false, timer, first = true, inFlight = false;
   function stop(message) {
     stopped = true;
     clearTimeout(timer);
@@ -13,8 +14,8 @@
     $('status').classList.add('expired');
     $('freshness').textContent = 'SESSION ENDED';
     $('expiry').textContent = '00:00';
-    $('map').replaceChildren(Object.assign(document.createElement('div'), { className: 'empty', textContent: '[ SESSION ENDED ]' }));
     map?.remove(); map = undefined;
+    $('map').replaceChildren(Object.assign(document.createElement('div'), { className: 'empty', textContent: '[ SESSION ENDED ]' }));
     $('directions').hidden = true;
     $('coordinates').textContent = '';
     $('accuracy').textContent = '—'; $('battery').textContent = '—'; $('recenter').disabled = true;
@@ -39,7 +40,8 @@
     $('directions').hidden = false;
   }
   async function refresh() {
-    if (stopped) return;
+    if (stopped || inFlight) return;
+    inFlight = true;
     try {
       const response = await fetch(`${API}/api/sessions/${id}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(15000) });
       if ([401, 404].includes(response.status)) { stop('This recovery link has expired or is unavailable. Send a new LIVE command to your phone.'); return; }
@@ -56,7 +58,7 @@
       tick();
     } catch {
       $('status').textContent = first ? 'Connecting to the recovery relay… retrying.' : 'Connection interrupted. Showing the last received fix; retrying.';
-    } finally { if (!stopped) timer = setTimeout(refresh, 10000); }
+    } finally { inFlight = false; if (!stopped) timer = setTimeout(refresh, 10000); }
   }
   function tick() {
     if (stopped || !expiresAt) return;
